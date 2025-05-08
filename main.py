@@ -36,7 +36,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file))
 
-    print("🤖 Bot running...")
+    print("🤖 Bot running... Good")
     app.run_polling()
 
 if __name__ == "__main__":
