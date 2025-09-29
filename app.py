@@ -1,5 +1,6 @@
 import os
 import random
+import asyncio
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -14,7 +15,6 @@ from telegram.ext import (
 
 # --- Configuration ---
 TOKEN = os.environ.get('TELEGRAM_TOKEN', '8020011113:AAHNrlcw6x0sTsmvsodnV0dZyWpVbX7zxMU')
-WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://thanlar-telegram-bot.onrender.com')  # e.g., https://yourapp.onrender.com
 
 # --- In-Memory "Database" ---
 user_profiles = {}
@@ -170,39 +170,57 @@ async def find_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Flask Web Server & Webhook Setup ---
 app = Flask(__name__)
 
-# Initialize Application
-application = Application.builder().token(TOKEN).build()
+# Initialize Application (do NOT call build() at module level)
+application = None
 
-# ConversationHandler for profile creation
-conv_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(start_profile_creation, pattern='^create_profile$')],
-    states={
-        NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
-        AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_age)],
-        BIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_bio)],
-        PHOTO: [MessageHandler(filters.PHOTO, get_photo)],
-    },
-    fallbacks=[CommandHandler('cancel', cancel)],
-)
-
-# Register handlers
-application.add_handler(CommandHandler('start', start))
-application.add_handler(CallbackQueryHandler(button_handler, pattern='^(find_match|view_profile)$'))
-application.add_handler(conv_handler)
+def setup_application():
+    """Initialize the telegram application"""
+    global application
+    if application is None:
+        application = Application.builder().token(TOKEN).build()
+        
+        # ConversationHandler for profile creation
+        conv_handler = ConversationHandler(
+            entry_points=[CallbackQueryHandler(start_profile_creation, pattern='^create_profile$')],
+            states={
+                NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
+                AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_age)],
+                BIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_bio)],
+                PHOTO: [MessageHandler(filters.PHOTO, get_photo)],
+            },
+            fallbacks=[CommandHandler('cancel', cancel)],
+        )
+        
+        # Register handlers
+        application.add_handler(CommandHandler('start', start))
+        application.add_handler(CallbackQueryHandler(button_handler, pattern='^(find_match|view_profile)$'))
+        application.add_handler(conv_handler)
+        
+        # Initialize the application
+        asyncio.run(application.initialize())
+    
+    return application
 
 @app.route(f'/{TOKEN}', methods=['POST'])
-async def webhook_handler():
+def webhook_handler():
     """Handle incoming webhook updates"""
-    await application.update_queue.put(
-        Update.de_json(data=request.get_json(force=True), bot=application.bot)
-    )
+    app_instance = setup_application()
+    update = Update.de_json(request.get_json(force=True), app_instance.bot)
+    
+    # Process update in a new event loop
+    asyncio.run(app_instance.process_update(update))
+    
     return 'ok'
 
 @app.route('/')
 def index():
     return 'Telegram Bot is running!'
 
+@app.route('/health')
+def health():
+    return 'OK', 200
+
 if __name__ == '__main__':
-    # For local testing only
-    import asyncio
-    asyncio.run(application.run_polling())
+    # For local testing only - use polling
+    app_instance = setup_application()
+    asyncio.run(app_instance.run_polling())
