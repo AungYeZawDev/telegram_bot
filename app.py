@@ -1,8 +1,6 @@
 import os
 import random
-import asyncio
-from threading import Thread
-from flask import Flask, request
+from quart import Quart, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -168,78 +166,60 @@ async def find_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# --- Flask Web Server & Webhook Setup ---
-app = Flask(__name__)
+# --- Quart ASGI Application ---
+app = Quart(__name__)
 
-# Global application instance
-application = None
-loop = None
-loop_thread = None
+# Initialize Application
+ptb_application = Application.builder().token(TOKEN).updater(None).build()
 
-def run_async_loop(loop):
-    """Run event loop in a separate thread"""
-    asyncio.set_event_loop(loop)
-    loop.run_forever()
+# ConversationHandler for profile creation
+conv_handler = ConversationHandler(
+    entry_points=[CallbackQueryHandler(start_profile_creation, pattern='^create_profile$')],
+    states={
+        NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
+        AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_age)],
+        BIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_bio)],
+        PHOTO: [MessageHandler(filters.PHOTO, get_photo)],
+    },
+    fallbacks=[CommandHandler('cancel', cancel)],
+)
 
-def get_application():
-    """Get or create the application instance"""
-    global application, loop, loop_thread
-    
-    if application is None:
-        # Create event loop in separate thread
-        loop = asyncio.new_event_loop()
-        loop_thread = Thread(target=run_async_loop, args=(loop,), daemon=True)
-        loop_thread.start()
-        
-        # Build application
-        application = Application.builder().token(TOKEN).build()
-        
-        # ConversationHandler for profile creation
-        conv_handler = ConversationHandler(
-            entry_points=[CallbackQueryHandler(start_profile_creation, pattern='^create_profile$')],
-            states={
-                NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
-                AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_age)],
-                BIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_bio)],
-                PHOTO: [MessageHandler(filters.PHOTO, get_photo)],
-            },
-            fallbacks=[CommandHandler('cancel', cancel)],
-        )
-        
-        # Register handlers
-        application.add_handler(CommandHandler('start', start))
-        application.add_handler(CallbackQueryHandler(button_handler, pattern='^(find_match|view_profile)$'))
-        application.add_handler(conv_handler)
-        
-        # Initialize the application
-        asyncio.run_coroutine_threadsafe(application.initialize(), loop).result()
-        asyncio.run_coroutine_threadsafe(application.start(), loop).result()
-    
-    return application
+# Register handlers
+ptb_application.add_handler(CommandHandler('start', start))
+ptb_application.add_handler(CallbackQueryHandler(button_handler, pattern='^(find_match|view_profile)$'))
+ptb_application.add_handler(conv_handler)
+
+@app.before_serving
+async def startup():
+    """Initialize bot before serving requests"""
+    await ptb_application.initialize()
+    await ptb_application.start()
+
+@app.after_serving
+async def shutdown():
+    """Cleanup on shutdown"""
+    await ptb_application.stop()
+    await ptb_application.shutdown()
 
 @app.route(f'/{TOKEN}', methods=['POST'])
-def webhook_handler():
+async def webhook_handler():
     """Handle incoming webhook updates"""
-    app_instance = get_application()
-    update = Update.de_json(request.get_json(force=True), app_instance.bot)
-    
-    # Process update in the event loop thread
-    asyncio.run_coroutine_threadsafe(
-        app_instance.process_update(update),
-        loop
-    )
-    
-    return 'ok'
+    try:
+        data = await request.get_json()
+        update = Update.de_json(data, ptb_application.bot)
+        await ptb_application.update_queue.put(update)
+        return 'ok'
+    except Exception as e:
+        app.logger.error(f"Error processing update: {e}")
+        return 'error', 500
 
 @app.route('/')
-def index():
+async def index():
     return 'Telegram Bot is running!'
 
 @app.route('/health')
-def health():
+async def health():
     return 'OK', 200
 
 if __name__ == '__main__':
-    # For local testing only - use polling
-    app_instance = get_application()
-    asyncio.run(app_instance.run_polling())
+    app.run(host='0.0.0.0', port=5000)
