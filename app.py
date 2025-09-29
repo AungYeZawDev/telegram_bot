@@ -194,6 +194,11 @@ async def startup():
     """Initialize bot before serving requests"""
     await ptb_application.initialize()
     await ptb_application.start()
+    
+    # Set webhook for production deployment
+    if os.environ.get('RENDER') == 'true':
+        webhook_url = f"https://thanlar-telegram-bot.onrender.com/{TOKEN}"
+        await ptb_application.bot.set_webhook(webhook_url)
 
 @app.after_serving
 async def shutdown():
@@ -222,4 +227,12 @@ async def health():
     return 'OK', 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    import asyncio
+    port = int(os.environ.get('PORT', 5000))
+    
+    # For local development
+    if os.environ.get('RENDER') != 'true':
+        app.run(host='0.0.0.0', port=port)
+    else:
+        # For Render deployment, hypercorn will handle this
+        pass
