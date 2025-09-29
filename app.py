@@ -17,9 +17,35 @@ TOKEN = os.environ.get('TELEGRAM_TOKEN', '8020011113:AAHNrlcw6x0sTsmvsodnV0dZyWp
 
 # --- In-Memory "Database" ---
 user_profiles = {}
+daily_stats = {}  # Track daily usage for users
 
 # --- Conversation Handler States ---
-NAME, AGE, BIO, PHOTO = range(4)
+NAME, AGE, BIO, PHOTO, LOCATION, INTERESTS, LOOKING_FOR, GENDER, GENDER_PREFERENCE = range(9)
+
+# --- Enhanced Data Structure ---
+INTERESTS_OPTIONS = [
+    "🎵 Music", "🎬 Movies", "📚 Reading", "🏃 Sports", "🍳 Cooking", 
+    "✈️ Travel", "🎮 Gaming", "🎨 Art", "💃 Dancing", "📸 Photography",
+    "🏔️ Hiking", "🏊 Swimming", "🧘 Yoga", "🎸 Guitar", "🐕 Animals"
+]
+
+LOOKING_FOR_OPTIONS = [
+    "💕 Long-term relationship", "👫 Friendship", "💬 Casual dating", 
+    "🤝 Networking", "🎯 Something serious"
+]
+
+# Gender options
+GENDER_OPTIONS = [
+    "👨 Male", "👩 Female", "🏳️‍⚧️ Non-binary", "❓ Prefer not to say"
+]
+
+GENDER_PREFERENCE_OPTIONS = [
+    "👨 Men", "👩 Women", "🏳️‍⚧️ Non-binary", "💫 Everyone"
+]
+
+# Daily limits
+DAILY_LIKES_LIMIT = 50
+DAILY_SUPER_LIKES_LIMIT = 5
 
 # --- Main Functions ---
 
@@ -29,11 +55,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("👤 Profile ပြင်ဆင်/ဖန်တီးမည်", callback_data='create_profile')],
         [InlineKeyboardButton("❤️ မိတ်ဖက်ရှာဖွေမည်", callback_data='find_match')],
         [InlineKeyboardButton("📄 ကျွန်ုပ်၏ Profile ကြည့်မည်", callback_data='view_profile')],
+        [InlineKeyboardButton("🔍 Advanced Search", callback_data='advanced_search')],
+        [InlineKeyboardButton("💌 Messages", callback_data='view_messages')],
+        [InlineKeyboardButton("⭐ Super Likes", callback_data='super_likes')],
+        [InlineKeyboardButton("⚙️ Settings", callback_data='settings')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     welcome_msg = (
         "👋 မင်္ဂလာပါ။ Dating Bot မှ ကြိုဆိုပါတယ်။\n\n"
+        "🔥 New Features:\n"
+        "• Advanced search filters\n"
+        "• Super likes system\n" 
+        "• Private messaging\n"
+        "• Location-based matching\n\n"
         "အောက်ပါ ခလုတ်များမှတစ်ဆင့် စတင်အသုံးပြုနိုင်ပါတယ်။"
     )
     await update.message.reply_text(welcome_msg, reply_markup=reply_markup)
@@ -49,6 +84,104 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await find_match(update, context)
     elif command == 'view_profile':
         return await view_my_profile(update, context)
+    elif command == 'advanced_search':
+        return await advanced_search_menu(update, context)
+    elif command == 'view_messages':
+        return await view_messages(update, context)
+    elif command == 'super_likes':
+        return await super_likes_menu(update, context)
+    elif command == 'settings':
+        return await settings_menu(update, context)
+    elif command == 'main_menu':
+        return await show_main_menu(update, context)
+    elif command == 'reset_likes':
+        return await reset_likes(update, context)
+    elif command == 'change_gender_pref':
+        return await change_gender_preference(update, context)
+    elif command.startswith('changepref_'):
+        return await handle_gender_preference_change(update, context)
+    elif command.startswith('like_'):
+        return await handle_like(update, context)
+    elif command.startswith('pass_'):
+        return await handle_pass(update, context)
+    elif command.startswith('superlike_'):
+        return await handle_super_like(update, context)
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show main menu"""
+    keyboard = [
+        [InlineKeyboardButton("👤 Profile ပြင်ဆင်/ဖန်တီးမည်", callback_data='create_profile')],
+        [InlineKeyboardButton("❤️ မိတ်ဖက်ရှာဖွေမည်", callback_data='find_match')],
+        [InlineKeyboardButton("📄 ကျွန်ုပ်၏ Profile ကြည့်မည်", callback_data='view_profile')],
+        [InlineKeyboardButton("🔍 Advanced Search", callback_data='advanced_search')],
+        [InlineKeyboardButton("💌 Messages", callback_data='view_messages')],
+        [InlineKeyboardButton("⭐ Super Likes", callback_data='super_likes')],
+        [InlineKeyboardButton("⚙️ Settings", callback_data='settings')],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.message.reply_text(
+        "🏠 **Main Menu**\n\nဘာလုပ်ချင်သလဲ ရွေးချယ်ပါ:",
+        reply_markup=reply_markup
+    )
+
+async def reset_likes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reset user's likes to see profiles again"""
+    user_id = update.effective_user.id
+    
+    if user_id in user_profiles:
+        user_profiles[user_id]['likes_given'] = []
+        await update.callback_query.message.reply_text(
+            "🔄 Preferences ကို reset လုပ်ပြီးပါပြီ! အားလုံးကို ပြန်ကြည့်နိုင်ပါပြီ။"
+        )
+    else:
+        await update.callback_query.message.reply_text("Profile မရှိသေးပါ။")
+
+async def change_gender_preference(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Allow user to change gender preference"""
+    user_id = update.effective_user.id
+    
+    if user_id not in user_profiles:
+        await update.callback_query.message.reply_text("ရှေးဦးစွာ Profile ဖန်တီးပါ။")
+        return
+    
+    # Show gender preference options
+    keyboard = []
+    for i, option in enumerate(GENDER_PREFERENCE_OPTIONS):
+        keyboard.append([InlineKeyboardButton(option, callback_data=f'changepref_{i}')])
+    
+    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data='main_menu')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    current_pref = user_profiles[user_id].get('gender_preference', 'Not set')
+    await update.callback_query.message.reply_text(
+        f"🏳️‍🌈 **Change Gender Preference**\n\n"
+        f"လက်ရှိ: {current_pref}\n\n"
+        f"အသစ်ရွေးချယ်ပါ:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def handle_gender_preference_change(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle gender preference change"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    pref_idx = int(query.data.split('_')[1])
+    
+    if user_id in user_profiles:
+        user_profiles[user_id]['gender_preference'] = GENDER_PREFERENCE_OPTIONS[pref_idx]
+        # Also reset likes so they can see new matches
+        user_profiles[user_id]['likes_given'] = []
+        
+        await query.message.reply_text(
+            f"✅ Gender preference ကို {GENDER_PREFERENCE_OPTIONS[pref_idx]} သို့ ပြောင်းလဲပြီးပါပြီ!\n\n"
+            f"🔄 Like history ကိုလည်း reset လုပ်ပေးထားပါတယ်။"
+        )
+        
+        # Show main menu
+        await show_main_menu(update, context)
 
 # --- Profile Creation Conversation ---
 
@@ -66,13 +199,23 @@ async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return AGE
 
 async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """User ၏ အသက်ကို လက်ခံပြီး မိတ်ဆက်စာကြောင်းတောင်းသည်"""
+    """User ၏ အသက်ကို လက်ခံပြီး Gender မေးသည်"""
     try:
         age = int(update.message.text)
         if 16 <= age <= 100:
             context.user_data['age'] = age
-            await update.message.reply_text("သင်၏ ကိုယ်ရေးမိတ်ဆက် (Bio) အတိုချုံးကို ရေးပေးပါ။")
-            return BIO
+            
+            # Show gender options
+            keyboard = []
+            for i, option in enumerate(GENDER_OPTIONS):
+                keyboard.append([InlineKeyboardButton(option, callback_data=f'gender_{i}')])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "သင်၏ လိင်ကို ရွေးချယ်ပေးပါ:",
+                reply_markup=reply_markup
+            )
+            return GENDER
         else:
             await update.message.reply_text("အသက်သည် ၁၆ နှင့် ၁၀၀ ကြားဖြစ်ရပါမည်။ ကျေးဇူးပြု၍ ပြန်ထည့်ပါ။")
             return AGE
@@ -80,10 +223,114 @@ async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("ကျေးဇူးပြု၍ နံပါတ် (ဂဏန်း) ဖြင့်သာ ထည့်သွင်းပါ။")
         return AGE
 
+async def get_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle gender selection"""
+    query = update.callback_query
+    await query.answer()
+    
+    gender_idx = int(query.data.split('_')[1])
+    context.user_data['gender'] = GENDER_OPTIONS[gender_idx]
+    
+    # Show gender preference options
+    keyboard = []
+    for i, option in enumerate(GENDER_PREFERENCE_OPTIONS):
+        keyboard.append([InlineKeyboardButton(option, callback_data=f'genderpref_{i}')])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.message.reply_text(
+        "သင် ဘယ်လိင်ကို ရှာဖွေချင်သလဲ?",
+        reply_markup=reply_markup
+    )
+    return GENDER_PREFERENCE
+
+async def get_gender_preference(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle gender preference selection"""
+    query = update.callback_query
+    await query.answer()
+    
+    pref_idx = int(query.data.split('_')[1])
+    context.user_data['gender_preference'] = GENDER_PREFERENCE_OPTIONS[pref_idx]
+    
+    await query.message.reply_text("သင်၏ ကိုယ်ရေးမိတ်ဆက် (Bio) အတိုချုံးကို ရေးပေးပါ။")
+    return BIO
+
 async def get_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """User ၏ Bio ကိုလက်ခံပြီး ဓာတ်ပုံတောင်းသည်"""
+    """User ၏ Bio ကိုလက်ခံပြီး Location တောင်းသည်"""
     context.user_data['bio'] = update.message.text
-    await update.message.reply_text("နောက်ဆုံးအနေနဲ့ သင့်ရဲ့ Profile ဓာတ်ပုံတစ်ပုံ ပေးပို့ပါ။")
+    await update.message.reply_text(
+        "သင့်ရဲ့ မြို့/ဒေသ ကို ပြောပြပေးပါ။ (ဥပမာ: Yangon, Mandalay)"
+    )
+    return LOCATION
+
+async def get_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User ၏ Location ကိုလက်ခံပြီး Interests တောင်းသည်"""
+    context.user_data['location'] = update.message.text
+    
+    # Create interests keyboard
+    keyboard = []
+    for i in range(0, len(INTERESTS_OPTIONS), 2):
+        row = []
+        row.append(InlineKeyboardButton(INTERESTS_OPTIONS[i], callback_data=f'interest_{i}'))
+        if i + 1 < len(INTERESTS_OPTIONS):
+            row.append(InlineKeyboardButton(INTERESTS_OPTIONS[i + 1], callback_data=f'interest_{i+1}'))
+        keyboard.append(row)
+    
+    keyboard.append([InlineKeyboardButton("✅ ပြီးပါပြီ", callback_data='interests_done')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "သင်ကြိုက်သော အကြိုက်များကို ရွေးချယ်ပါ (၃ခု အနည်းဆုံး):",
+        reply_markup=reply_markup
+    )
+    return INTERESTS
+
+async def handle_interests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle interest selections"""
+    query = update.callback_query
+    await query.answer()
+    
+    if 'selected_interests' not in context.user_data:
+        context.user_data['selected_interests'] = []
+    
+    if query.data == 'interests_done':
+        if len(context.user_data['selected_interests']) < 3:
+            await query.message.reply_text("အနည်းဆုံး ၃ခု ရွေးချယ်ပေးပါ။")
+            return INTERESTS
+        
+        # Show looking for options
+        keyboard = []
+        for i, option in enumerate(LOOKING_FOR_OPTIONS):
+            keyboard.append([InlineKeyboardButton(option, callback_data=f'looking_{i}')])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.message.reply_text(
+            "သင် ဘာရှာနေသလဲ?",
+            reply_markup=reply_markup
+        )
+        return LOOKING_FOR
+    else:
+        # Handle interest selection
+        interest_idx = int(query.data.split('_')[1])
+        interest = INTERESTS_OPTIONS[interest_idx]
+        
+        if interest in context.user_data['selected_interests']:
+            context.user_data['selected_interests'].remove(interest)
+        else:
+            context.user_data['selected_interests'].append(interest)
+        
+        selected_text = "ရွေးချယ်ပြီး: " + ", ".join(context.user_data['selected_interests'])
+        await query.message.edit_text(f"{selected_text}\n\nထပ်ရွေးချယ်ရန် အောက်မှ ရွေးပါ:")
+        return INTERESTS
+
+async def get_looking_for(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle what user is looking for selection"""
+    query = update.callback_query
+    await query.answer()
+    
+    looking_idx = int(query.data.split('_')[1])
+    context.user_data['looking_for'] = LOOKING_FOR_OPTIONS[looking_idx]
+    
+    await query.message.reply_text("နောက်ဆုံးအနေနဲ့ သင့်ရဲ့ Profile ဓာတ်ပုံတစ်ပုံ ပေးပို့ပါ။")
     return PHOTO
 
 async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,9 +341,19 @@ async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_profiles[user_id] = {
         'name': context.user_data['name'],
         'age': context.user_data['age'],
+        'gender': context.user_data['gender'],
+        'gender_preference': context.user_data['gender_preference'],
         'bio': context.user_data['bio'],
+        'location': context.user_data['location'],
+        'interests': context.user_data['selected_interests'],
+        'looking_for': context.user_data['looking_for'],
         'photo': photo_file.file_id,
-        'username': update.effective_user.username
+        'username': update.effective_user.username,
+        'super_likes_received': 0,
+        'likes_given': [],
+        'super_likes_given': [],
+        'matches': [],
+        'created_at': context.bot_data.get('current_time', 'recent')
     }
     
     await update.message.reply_text("✅ သင်၏ Profile ကို အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ။")
@@ -117,10 +374,18 @@ async def view_my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if user_id in user_profiles:
         profile = user_profiles[user_id]
+        interests_text = ", ".join(profile.get('interests', []))
+        
         caption = (
-            f"👤 **{profile['name']}** ({profile['age']})\n\n"
+            f"👤 **{profile['name']}** ({profile['age']})\n"
+            f"🆔 **Gender:** {profile.get('gender', 'Not specified')}\n"
+            f"💖 **Looking for:** {profile.get('gender_preference', 'Not specified')}\n"
+            f"📍 **Location:** {profile.get('location', 'Not specified')}\n\n"
             f"📝 **Bio:**\n{profile['bio']}\n\n"
-            f"📞 **ဆက်သွယ်ရန်:** @{profile.get('username', 'N/A')}"
+            f"🎯 **Relationship Goal:** {profile.get('looking_for', 'Not specified')}\n"
+            f"❤️ **Interests:** {interests_text}\n"
+            f"⭐ **Super Likes Received:** {profile.get('super_likes_received', 0)}\n\n"
+            f"📞 **Contact:** @{profile.get('username', 'N/A')}"
         )
         await context.bot.send_photo(
             chat_id=chat_id, 
@@ -136,34 +401,272 @@ async def view_my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def find_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """အခြား User တစ်ဦး၏ Profile ကို ကျပန်းရှာဖွေပြီး ပြသသည်"""
+    """Enhanced matching with like/pass system and gender filtering"""
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     
-    available_profiles = {uid: prof for uid, prof in user_profiles.items() if uid != user_id}
+    if user_id not in user_profiles:
+        await context.bot.send_message(
+            chat_id=chat_id, 
+            text="ရှေးဦးစွာ Profile ဖန်တီးပါ။"
+        )
+        return ConversationHandler.END
+    
+    current_user = user_profiles[user_id]
+    liked_users = set(current_user.get('likes_given', []))
+    user_gender_pref = current_user.get('gender_preference', '💫 Everyone')
+    
+    # Filter by gender preference
+    def matches_gender_preference(profile):
+        user_gender = profile.get('gender', '')
+        
+        # If user wants everyone, show all
+        if user_gender_pref == '💫 Everyone':
+            return True
+        # If user wants men, show only men
+        elif user_gender_pref == '👨 Men' and user_gender == '👨 Male':
+            return True
+        # If user wants women, show only women  
+        elif user_gender_pref == '👩 Women' and user_gender == '👩 Female':
+            return True
+        # If user wants non-binary, show only non-binary
+        elif user_gender_pref == '🏳️‍⚧️ Non-binary' and user_gender == '🏳️‍⚧️ Non-binary':
+            return True
+        
+        return False
+    
+    # Mutual gender preference check
+    def mutual_gender_match(profile, profile_user_id):
+        # Check if the other user's preference matches current user's gender
+        other_gender_pref = profile.get('gender_preference', '💫 Everyone')
+        current_gender = current_user.get('gender', '')
+        
+        if other_gender_pref == '💫 Everyone':
+            return True
+        elif other_gender_pref == '👨 Men' and current_gender == '👨 Male':
+            return True
+        elif other_gender_pref == '👩 Women' and current_gender == '👩 Female':
+            return True
+        elif other_gender_pref == '🏳️‍⚧️ Non-binary' and current_gender == '🏳️‍⚧️ Non-binary':
+            return True
+        
+        return False
+    
+    available_profiles = {
+        uid: prof for uid, prof in user_profiles.items() 
+        if (uid != user_id and 
+            uid not in liked_users and 
+            matches_gender_preference(prof) and
+            mutual_gender_match(prof, uid))
+    }
     
     if len(available_profiles) > 0:
         random_user_id = random.choice(list(available_profiles.keys()))
         profile = available_profiles[random_user_id]
+        interests_text = ", ".join(profile.get('interests', []))
+        
+        # Create action buttons
+        keyboard = [
+            [
+                InlineKeyboardButton("💚 Like", callback_data=f'like_{random_user_id}'),
+                InlineKeyboardButton("⭐ Super Like", callback_data=f'superlike_{random_user_id}'),
+                InlineKeyboardButton("❌ Pass", callback_data=f'pass_{random_user_id}')
+            ],
+            [InlineKeyboardButton("🔙 Main Menu", callback_data='main_menu')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         
         caption = (
-            f"❤️ **Match Found!**\n\n"
-            f"👤 **{profile['name']}** ({profile['age']})\n\n"
+            f"💕 **Potential Match!**\n\n"
+            f"👤 **{profile['name']}** ({profile['age']})\n"
+            f"🆔 **Gender:** {profile.get('gender', 'Not specified')}\n"
+            f"📍 **Location:** {profile.get('location', 'Not specified')}\n\n"
             f"📝 **Bio:**\n{profile['bio']}\n\n"
-            f"💬 စကားပြောဖို့အတွက် @{profile.get('username', 'N/A')} ကို ဆက်သွယ်နိုင်ပါတယ်။"
+            f"🎯 **Looking for:** {profile.get('looking_for', 'Not specified')}\n"
+            f"❤️ **Interests:** {interests_text}\n\n"
+            f"⭐ **Super Likes:** {profile.get('super_likes_received', 0)}"
         )
+        
         await context.bot.send_photo(
             chat_id=chat_id, 
             photo=profile['photo'], 
             caption=caption, 
-            parse_mode='Markdown'
+            parse_mode='Markdown',
+            reply_markup=reply_markup
         )
     else:
+        keyboard = [
+            [InlineKeyboardButton("🔄 Reset Preferences", callback_data='reset_likes')],
+            [InlineKeyboardButton("⚙️ Change Gender Preference", callback_data='change_gender_pref')],
+            [InlineKeyboardButton("🔙 Main Menu", callback_data='main_menu')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await context.bot.send_message(
             chat_id=chat_id, 
-            text="တိုက်ဆိုင်စွာပဲ၊ လက်ရှိမှာ ပြသဖို့ တခြား profile မရှိသေးပါဘူး။"
+            text="💔 သင်၏ gender preference နှင့် ကိုက်ညီတဲ့ profiles မရှိသေးပါ!\n\nPreferences ကို ပြောင်းလဲခြင်း သို့မဟုတ် reset လုပ်ခြင်းကို စဉ်းစားကြည့်ပါ။",
+            reply_markup=reply_markup
         )
     return ConversationHandler.END
+
+# --- New Features ---
+
+async def handle_like(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle regular like"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    liked_user_id = int(query.data.split('_')[1])
+    
+    # Add to likes given
+    if user_id in user_profiles:
+        if 'likes_given' not in user_profiles[user_id]:
+            user_profiles[user_id]['likes_given'] = []
+        user_profiles[user_id]['likes_given'].append(liked_user_id)
+        
+        # Check if it's a match
+        if (liked_user_id in user_profiles and 
+            user_id in user_profiles[liked_user_id].get('likes_given', [])):
+            # It's a match!
+            user_profiles[user_id].setdefault('matches', []).append(liked_user_id)
+            user_profiles[liked_user_id].setdefault('matches', []).append(user_id)
+            
+            await query.message.reply_text(
+                f"🎉 **IT'S A MATCH!** 💕\n\n"
+                f"သင်နှင့် {user_profiles[liked_user_id]['name']} တို့ အပြန်အလှန် ကြိုက်နှစ်သက်ကြပါတယ်!\n\n"
+                f"@{user_profiles[liked_user_id].get('username', 'N/A')} ကို ဆက်သွယ်နိုင်ပါတယ်။"
+            )
+        else:
+            await query.message.reply_text("💚 Like ပေးပြီးပါပြီ! ကြည့်ရှုခြင်းကို ဆက်လက်လုပ်ဆောင်ပါ။")
+    
+    # Continue to next profile
+    await find_match(update, context)
+
+async def handle_super_like(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle super like"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    super_liked_user_id = int(query.data.split('_')[1])
+    
+    if user_id in user_profiles:
+        # Add to super likes given
+        if 'super_likes_given' not in user_profiles[user_id]:
+            user_profiles[user_id]['super_likes_given'] = []
+        user_profiles[user_id]['super_likes_given'].append(super_liked_user_id)
+        
+        # Add to likes given as well
+        if 'likes_given' not in user_profiles[user_id]:
+            user_profiles[user_id]['likes_given'] = []
+        user_profiles[user_id]['likes_given'].append(super_liked_user_id)
+        
+        # Increase super like count for target user
+        if super_liked_user_id in user_profiles:
+            user_profiles[super_liked_user_id]['super_likes_received'] = \
+                user_profiles[super_liked_user_id].get('super_likes_received', 0) + 1
+        
+        await query.message.reply_text("⭐ Super Like ပေးပြီးပါပြီ! သူများသိရှိမည်ဖြစ်ပါတယ်။")
+    
+    # Continue to next profile
+    await find_match(update, context)
+
+async def handle_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle pass"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    passed_user_id = int(query.data.split('_')[1])
+    
+    if user_id in user_profiles:
+        if 'likes_given' not in user_profiles[user_id]:
+            user_profiles[user_id]['likes_given'] = []
+        user_profiles[user_id]['likes_given'].append(passed_user_id)
+    
+    await query.message.reply_text("👋 Pass လုပ်ပြီးပါပြီ။")
+    
+    # Continue to next profile
+    await find_match(update, context)
+
+async def advanced_search_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Advanced search options"""
+    keyboard = [
+        [InlineKeyboardButton("🔍 By Age Range", callback_data='search_age')],
+        [InlineKeyboardButton("📍 By Location", callback_data='search_location')],
+        [InlineKeyboardButton("❤️ By Interests", callback_data='search_interests')],
+        [InlineKeyboardButton("🔙 Back", callback_data='main_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.message.reply_text(
+        "🔍 **Advanced Search Options:**\n\nကြိုက်တဲ့ filter ကို ရွေးချယ်ပါ:",
+        reply_markup=reply_markup
+    )
+
+async def view_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """View matches and messages"""
+    user_id = update.effective_user.id
+    
+    if user_id not in user_profiles:
+        await update.callback_query.message.reply_text("ရှေးဦးစွာ Profile ဖန်တီးပါ။")
+        return
+    
+    matches = user_profiles[user_id].get('matches', [])
+    
+    if not matches:
+        await update.callback_query.message.reply_text(
+            "💔 သင့်မှာ matches မရှိသေးပါ။\n\nMore people ကို like ပေးပြီး matches ရယူပါ!"
+        )
+        return
+    
+    text = "💕 **Your Matches:**\n\n"
+    for match_id in matches:
+        if match_id in user_profiles:
+            profile = user_profiles[match_id]
+            text += f"👤 {profile['name']} - @{profile.get('username', 'N/A')}\n"
+    
+    text += "\n💬 Direct message လုပ်ရန် username ကို click လုပ်ပါ။"
+    
+    await update.callback_query.message.reply_text(text, parse_mode='Markdown')
+
+async def super_likes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Super likes information"""
+    user_id = update.effective_user.id
+    
+    if user_id not in user_profiles:
+        await update.callback_query.message.reply_text("ရှေးဦးစွာ Profile ဖန်တီးပါ။")
+        return
+    
+    profile = user_profiles[user_id]
+    super_likes_received = profile.get('super_likes_received', 0)
+    super_likes_given = len(profile.get('super_likes_given', []))
+    
+    text = (
+        f"⭐ **Super Likes Status:**\n\n"
+        f"📨 **Received:** {super_likes_received}\n"
+        f"📤 **Given:** {super_likes_given}\n\n"
+        f"Super Likes သည် သင့်ကို အထူးအာရုံစိုက်ကြောင်း ပြသပေးပါတယ်!"
+    )
+    
+    await update.callback_query.message.reply_text(text, parse_mode='Markdown')
+
+async def settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Settings and preferences"""
+    keyboard = [
+        [InlineKeyboardButton("✏️ Edit Profile", callback_data='edit_profile')],
+        [InlineKeyboardButton("🏳️‍🌈 Change Gender Preference", callback_data='change_gender_pref')],
+        [InlineKeyboardButton("🔄 Reset All Likes", callback_data='reset_likes')],
+        [InlineKeyboardButton("❌ Delete Profile", callback_data='delete_profile')],
+        [InlineKeyboardButton("🔙 Back", callback_data='main_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.message.reply_text(
+        "⚙️ **Settings:**\n\nဘာလုပ်ချင်သလဲ ရွေးချယ်ပါ:",
+        reply_markup=reply_markup
+    )
 
 
 # --- Quart ASGI Application ---
@@ -178,7 +681,12 @@ conv_handler = ConversationHandler(
     states={
         NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
         AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_age)],
+        GENDER: [CallbackQueryHandler(get_gender)],
+        GENDER_PREFERENCE: [CallbackQueryHandler(get_gender_preference)],
         BIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_bio)],
+        LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_location)],
+        INTERESTS: [CallbackQueryHandler(handle_interests)],
+        LOOKING_FOR: [CallbackQueryHandler(get_looking_for)],
         PHOTO: [MessageHandler(filters.PHOTO, get_photo)],
     },
     fallbacks=[CommandHandler('cancel', cancel)],
@@ -186,7 +694,8 @@ conv_handler = ConversationHandler(
 
 # Register handlers
 ptb_application.add_handler(CommandHandler('start', start))
-ptb_application.add_handler(CallbackQueryHandler(button_handler, pattern='^(find_match|view_profile)$'))
+ptb_application.add_handler(CallbackQueryHandler(button_handler, pattern='^(find_match|view_profile|advanced_search|view_messages|super_likes|settings|main_menu|reset_likes|change_gender_pref)$'))
+ptb_application.add_handler(CallbackQueryHandler(button_handler, pattern='^(like_|pass_|superlike_|changepref_)'))
 ptb_application.add_handler(conv_handler)
 
 @app.before_serving
