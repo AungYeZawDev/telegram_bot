@@ -318,8 +318,38 @@ async def handle_interests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             context.user_data['selected_interests'].append(interest)
         
-        selected_text = "ရွေးချယ်ပြီး: " + ", ".join(context.user_data['selected_interests'])
-        await query.message.edit_text(f"{selected_text}\n\nထပ်ရွေးချယ်ရန် အောက်မှ ရွေးပါ:")
+        # Recreate the keyboard with updated selections
+        keyboard = []
+        for i in range(0, len(INTERESTS_OPTIONS), 2):
+            row = []
+            # First interest in row
+            interest_text = INTERESTS_OPTIONS[i]
+            if interest_text in context.user_data['selected_interests']:
+                interest_text += " ✅"
+            row.append(InlineKeyboardButton(interest_text, callback_data=f'interest_{i}'))
+            
+            # Second interest in row (if exists)
+            if i + 1 < len(INTERESTS_OPTIONS):
+                interest_text = INTERESTS_OPTIONS[i + 1]
+                if interest_text in context.user_data['selected_interests']:
+                    interest_text += " ✅"
+                row.append(InlineKeyboardButton(interest_text, callback_data=f'interest_{i+1}'))
+            
+            keyboard.append(row)
+        
+        # Add done button
+        selected_count = len(context.user_data['selected_interests'])
+        done_text = f"✅ ပြီးပါပြီ ({selected_count}/15)"
+        keyboard.append([InlineKeyboardButton(done_text, callback_data='interests_done')])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        selected_text = "ရွေးချယ်ပြီး: " + ", ".join(context.user_data['selected_interests']) if context.user_data['selected_interests'] else "မရွေးချယ်ရသေးပါ"
+        
+        await query.edit_message_text(
+            f"သင်ကြိုက်သော အကြိုက်များကို ရွေးချယ်ပါ (၃ခု အနည်းဆုံး):\n\n{selected_text}",
+            reply_markup=reply_markup
+        )
         return INTERESTS
 
 async def get_looking_for(update: Update, context: ContextTypes.DEFAULT_TYPE):
