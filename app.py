@@ -959,6 +959,9 @@ conv_handler = ConversationHandler(
         PHOTO: [MessageHandler(filters.PHOTO, get_photo)],
     },
     fallbacks=[CommandHandler('cancel', cancel)],
+    per_message=False,
+    per_chat=True,
+    per_user=True,
 )
 
 # Register handlers
