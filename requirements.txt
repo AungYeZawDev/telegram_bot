@@ -1,8 +1,4 @@
-# python-telegram-bot version အသစ်
-python-telegram-bot[job-queue]==21.2
-httpx==0.27.0
-
-# Web server အတွက်
-Flask==2.2.2
-gunicorn==20.1.0
-Werkzeug==2.3.8
+python-telegram-bot==20.8
+Flask==3.0.0
+gunicorn==21.2.0
+Werkzeug==3.0.1
