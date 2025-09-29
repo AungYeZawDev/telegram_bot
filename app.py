@@ -198,7 +198,11 @@ async def startup():
     # Set webhook for production deployment
     if os.environ.get('RENDER') == 'true':
         webhook_url = f"https://thanlar-telegram-bot.onrender.com/{TOKEN}"
-        await ptb_application.bot.set_webhook(webhook_url)
+        try:
+            await ptb_application.bot.set_webhook(webhook_url)
+            print(f"Webhook set to: {webhook_url}")
+        except Exception as e:
+            print(f"Error setting webhook: {e}")
 
 @app.after_serving
 async def shutdown():
