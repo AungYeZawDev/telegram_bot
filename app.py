@@ -1,6 +1,7 @@
 import os
 import random
 import asyncio
+from threading import Thread
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -170,13 +171,27 @@ async def find_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Flask Web Server & Webhook Setup ---
 app = Flask(__name__)
 
-# Initialize Application (do NOT call build() at module level)
+# Global application instance
 application = None
+loop = None
+loop_thread = None
 
-def setup_application():
-    """Initialize the telegram application"""
-    global application
+def run_async_loop(loop):
+    """Run event loop in a separate thread"""
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+def get_application():
+    """Get or create the application instance"""
+    global application, loop, loop_thread
+    
     if application is None:
+        # Create event loop in separate thread
+        loop = asyncio.new_event_loop()
+        loop_thread = Thread(target=run_async_loop, args=(loop,), daemon=True)
+        loop_thread.start()
+        
+        # Build application
         application = Application.builder().token(TOKEN).build()
         
         # ConversationHandler for profile creation
@@ -197,18 +212,22 @@ def setup_application():
         application.add_handler(conv_handler)
         
         # Initialize the application
-        asyncio.run(application.initialize())
+        asyncio.run_coroutine_threadsafe(application.initialize(), loop).result()
+        asyncio.run_coroutine_threadsafe(application.start(), loop).result()
     
     return application
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook_handler():
     """Handle incoming webhook updates"""
-    app_instance = setup_application()
+    app_instance = get_application()
     update = Update.de_json(request.get_json(force=True), app_instance.bot)
     
-    # Process update in a new event loop
-    asyncio.run(app_instance.process_update(update))
+    # Process update in the event loop thread
+    asyncio.run_coroutine_threadsafe(
+        app_instance.process_update(update),
+        loop
+    )
     
     return 'ok'
 
@@ -222,5 +241,5 @@ def health():
 
 if __name__ == '__main__':
     # For local testing only - use polling
-    app_instance = setup_application()
+    app_instance = get_application()
     asyncio.run(app_instance.run_polling())
