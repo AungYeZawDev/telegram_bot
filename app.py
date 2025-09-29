@@ -98,6 +98,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await reset_likes(update, context)
     elif command == 'change_gender_pref':
         return await change_gender_preference(update, context)
+    elif command == 'search_age':
+        return await search_by_age(update, context)
+    elif command == 'search_location':
+        return await search_by_location(update, context)
+    elif command == 'search_interests':
+        return await search_by_interests(update, context)
+    elif command.startswith('age_'):
+        return await perform_age_search(update, context)
+    elif command.startswith('loc_'):
+        return await perform_location_search(update, context)
+    elif command.startswith('int_'):
+        return await perform_interest_search(update, context)
     elif command.startswith('changepref_'):
         return await handle_gender_preference_change(update, context)
     elif command.startswith('like_'):
@@ -635,6 +647,233 @@ async def advanced_search_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=reply_markup
     )
 
+async def search_by_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Search profiles by age range"""
+    user_id = update.effective_user.id
+    
+    if user_id not in user_profiles:
+        await update.callback_query.message.reply_text("ရှေးဦးစွာ Profile ဖန်တီးပါ။")
+        return
+    
+    # Age range options
+    keyboard = [
+        [InlineKeyboardButton("18-25", callback_data='age_18_25')],
+        [InlineKeyboardButton("26-35", callback_data='age_26_35')],
+        [InlineKeyboardButton("36-45", callback_data='age_36_45')],
+        [InlineKeyboardButton("46-60", callback_data='age_46_60')],
+        [InlineKeyboardButton("60+", callback_data='age_60_plus')],
+        [InlineKeyboardButton("🔙 Back", callback_data='advanced_search')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.message.reply_text(
+        "🔍 **Search by Age Range:**\n\nအသက်အပိုင်းအခြားကို ရွေးချယ်ပါ:",
+        reply_markup=reply_markup
+    )
+
+async def search_by_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Search profiles by location"""
+    user_id = update.effective_user.id
+    
+    if user_id not in user_profiles:
+        await update.callback_query.message.reply_text("ရှေးဦးစွာ Profile ဖန်တီးပါ။")
+        return
+    
+    # Get all unique locations from profiles
+    locations = set()
+    for profile in user_profiles.values():
+        location = profile.get('location', '').strip()
+        if location:
+            locations.add(location)
+    
+    if not locations:
+        await update.callback_query.message.reply_text(
+            "📍 လက်ရှိတွင် location information ရှိသော profiles မရှိသေးပါ။"
+        )
+        return
+    
+    # Create keyboard with available locations
+    keyboard = []
+    for location in sorted(locations):
+        keyboard.append([InlineKeyboardButton(f"📍 {location}", callback_data=f'loc_{location}')])
+    
+    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data='advanced_search')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.message.reply_text(
+        "📍 **Search by Location:**\n\nမြို့/ဒေသကို ရွေးချယ်ပါ:",
+        reply_markup=reply_markup
+    )
+
+async def search_by_interests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Search profiles by interests"""
+    user_id = update.effective_user.id
+    
+    if user_id not in user_profiles:
+        await update.callback_query.message.reply_text("ရှေးဦးစွာ Profile ဖန်တီးပါ။")
+        return
+    
+    # Create keyboard with interest options
+    keyboard = []
+    for i in range(0, len(INTERESTS_OPTIONS), 2):
+        row = []
+        row.append(InlineKeyboardButton(INTERESTS_OPTIONS[i], callback_data=f'int_{i}'))
+        if i + 1 < len(INTERESTS_OPTIONS):
+            row.append(InlineKeyboardButton(INTERESTS_OPTIONS[i + 1], callback_data=f'int_{i+1}'))
+        keyboard.append(row)
+    
+    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data='advanced_search')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.message.reply_text(
+        "❤️ **Search by Interests:**\n\nအကြိုက်တစ်ခုကို ရွေးချယ်ပါ:",
+        reply_markup=reply_markup
+    )
+
+async def perform_age_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Perform age-based search and show results"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    age_range = query.data.split('_')[1:]  # e.g., ['18', '25'] or ['60', 'plus']
+    
+    if age_range[0] == '60':
+        min_age, max_age = 60, 100
+    else:
+        min_age, max_age = int(age_range[0]), int(age_range[1])
+    
+    # Filter profiles by age range (excluding current user)
+    current_user = user_profiles[user_id]
+    user_gender_pref = current_user.get('gender_preference', '💫 Everyone')
+    
+    matching_profiles = []
+    for uid, profile in user_profiles.items():
+        if uid == user_id:
+            continue
+        
+        age = profile.get('age', 0)
+        if min_age <= age <= max_age:
+            # Also apply gender preference filtering
+            if matches_gender_preference_filter(profile, user_gender_pref, current_user):
+                matching_profiles.append((uid, profile))
+    
+    await show_search_results(update, context, matching_profiles, f"Age {min_age}-{max_age if max_age != 100 else '+'}")
+
+async def perform_location_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Perform location-based search and show results"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    search_location = query.data.replace('loc_', '')
+    
+    # Filter profiles by location (excluding current user)
+    current_user = user_profiles[user_id]
+    user_gender_pref = current_user.get('gender_preference', '💫 Everyone')
+    
+    matching_profiles = []
+    for uid, profile in user_profiles.items():
+        if uid == user_id:
+            continue
+        
+        profile_location = profile.get('location', '').strip()
+        if profile_location.lower() == search_location.lower():
+            # Also apply gender preference filtering
+            if matches_gender_preference_filter(profile, user_gender_pref, current_user):
+                matching_profiles.append((uid, profile))
+    
+    await show_search_results(update, context, matching_profiles, f"Location: {search_location}")
+
+async def perform_interest_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Perform interest-based search and show results"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    interest_idx = int(query.data.split('_')[1])
+    search_interest = INTERESTS_OPTIONS[interest_idx]
+    
+    # Filter profiles by interest (excluding current user)
+    current_user = user_profiles[user_id]
+    user_gender_pref = current_user.get('gender_preference', '💫 Everyone')
+    
+    matching_profiles = []
+    for uid, profile in user_profiles.items():
+        if uid == user_id:
+            continue
+        
+        profile_interests = profile.get('interests', [])
+        if search_interest in profile_interests:
+            # Also apply gender preference filtering
+            if matches_gender_preference_filter(profile, user_gender_pref, current_user):
+                matching_profiles.append((uid, profile))
+    
+    await show_search_results(update, context, matching_profiles, f"Interest: {search_interest}")
+
+def matches_gender_preference_filter(profile, user_gender_pref, current_user):
+    """Helper function to check gender preference match"""
+    user_gender = profile.get('gender', '')
+    current_gender = current_user.get('gender', '')
+    other_gender_pref = profile.get('gender_preference', '💫 Everyone')
+    
+    # Check if current user's preference matches profile's gender
+    user_match = (user_gender_pref == '💫 Everyone' or
+                  (user_gender_pref == '👨 Men' and user_gender == '👨 Male') or
+                  (user_gender_pref == '👩 Women' and user_gender == '👩 Female') or
+                  (user_gender_pref == '🏳️‍⚧️ Non-binary' and user_gender == '🏳️‍⚧️ Non-binary'))
+    
+    # Check if profile's preference matches current user's gender
+    profile_match = (other_gender_pref == '💫 Everyone' or
+                     (other_gender_pref == '👨 Men' and current_gender == '👨 Male') or
+                     (other_gender_pref == '👩 Women' and current_gender == '👩 Female') or
+                     (other_gender_pref == '🏳️‍⚧️ Non-binary' and current_gender == '🏳️‍⚧️ Non-binary'))
+    
+    return user_match and profile_match
+
+async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE, matching_profiles, search_criteria):
+    """Display search results"""
+    if not matching_profiles:
+        keyboard = [[InlineKeyboardButton("🔙 Back to Search", callback_data='advanced_search')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.callback_query.message.reply_text(
+            f"🔍 **Search Results for {search_criteria}:**\n\n"
+            f"😔 ကိုက်ညီတဲ့ profiles မတွေ့ပါ။\n\n"
+            f"တခြား search criteria ကို စမ်းကြည့်ပါ။",
+            reply_markup=reply_markup
+        )
+        return
+    
+    # Show first 5 results
+    results_text = f"🔍 **Search Results for {search_criteria}:**\n\n"
+    results_text += f"📊 **Found {len(matching_profiles)} matches**\n\n"
+    
+    for i, (uid, profile) in enumerate(matching_profiles[:5]):
+        interests_text = ", ".join(profile.get('interests', [])[:3])  # Show first 3 interests
+        results_text += (
+            f"👤 **{profile['name']}** ({profile['age']})\n"
+            f"🆔 {profile.get('gender', 'Not specified')}\n"
+            f"📍 {profile.get('location', 'Not specified')}\n"
+            f"❤️ {interests_text}{'...' if len(profile.get('interests', [])) > 3 else ''}\n"
+            f"📞 @{profile.get('username', 'N/A')}\n\n"
+        )
+    
+    if len(matching_profiles) > 5:
+        results_text += f"... နှင့် {len(matching_profiles) - 5} ဦး ထပ်ရှိသေးသည်။"
+    
+    keyboard = [
+        [InlineKeyboardButton("🔙 Back to Search", callback_data='advanced_search')],
+        [InlineKeyboardButton("🏠 Main Menu", callback_data='main_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.callback_query.message.reply_text(
+        results_text,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
 async def view_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """View matches and messages"""
     user_id = update.effective_user.id
@@ -724,8 +963,8 @@ conv_handler = ConversationHandler(
 
 # Register handlers
 ptb_application.add_handler(CommandHandler('start', start))
-ptb_application.add_handler(CallbackQueryHandler(button_handler, pattern='^(find_match|view_profile|advanced_search|view_messages|super_likes|settings|main_menu|reset_likes|change_gender_pref)$'))
-ptb_application.add_handler(CallbackQueryHandler(button_handler, pattern='^(like_|pass_|superlike_|changepref_)'))
+ptb_application.add_handler(CallbackQueryHandler(button_handler, pattern='^(find_match|view_profile|advanced_search|view_messages|super_likes|settings|main_menu|reset_likes|change_gender_pref|search_age|search_location|search_interests)$'))
+ptb_application.add_handler(CallbackQueryHandler(button_handler, pattern='^(like_|pass_|superlike_|changepref_|age_|loc_|int_)'))
 ptb_application.add_handler(conv_handler)
 
 @app.before_serving
