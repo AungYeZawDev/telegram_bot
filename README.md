@@ -255,7 +255,7 @@ user_profiles = {}
 
 ### Contact
 - **Developer**: [@AungYeZawDev](https://github.com/AungYeZawDev)
-- **Telegram**: [@your_support_account](https://t.me/aungyezaw)
+- **Telegram**: [@aungyezaw](https://t.me/aungyezaw)
 
 ## 📄 License
 
