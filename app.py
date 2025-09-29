@@ -1,30 +1,20 @@
 import os
 import random
-import logging
-import asyncio
 from flask import Flask, request
-
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
-    filters,
-    ConversationHandler,
     CallbackQueryHandler,
-    ContextTypes,
+    ConversationHandler,
+    filters,
+    ContextTypes
 )
-
-# Enable logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
 
 # --- Configuration ---
-TOKEN = os.environ.get("TELEGRAM_TOKEN", "YOUR_FALLBACK_TOKEN")
-WEBHOOK_URL = os.environ.get("RENDER_EXTERNAL_URL") # Render's public URL
+TOKEN = os.environ.get('TELEGRAM_TOKEN', '8020011113:AAHNrlcw6x0sTsmvsodnV0dZyWpVbX7zxMU')
+WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://thanlar-telegram-bot.onrender.com')  # e.g., https://yourapp.onrender.com
 
 # --- In-Memory "Database" ---
 user_profiles = {}
@@ -32,37 +22,52 @@ user_profiles = {}
 # --- Conversation Handler States ---
 NAME, AGE, BIO, PHOTO = range(4)
 
-# --- Bot Functions (now async) ---
+# --- Main Functions ---
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Sends a message with three inline buttons attached."""
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Bot စတင်အသုံးပြုသည့်အခါ ပင်မ Menu ကိုပြသပေးသည်"""
     keyboard = [
         [InlineKeyboardButton("👤 Profile ပြင်ဆင်/ဖန်တီးမည်", callback_data='create_profile')],
         [InlineKeyboardButton("❤️ မိတ်ဖက်ရှာဖွေမည်", callback_data='find_match')],
         [InlineKeyboardButton("📄 ကျွန်ုပ်၏ Profile ကြည့်မည်", callback_data='view_profile')],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
+    
+    welcome_msg = (
         "👋 မင်္ဂလာပါ။ Dating Bot မှ ကြိုဆိုပါတယ်။\n\n"
-        "အောက်ပါ ခလုတ်များမှတစ်ဆင့် စတင်အသုံးပြုနိုင်ပါတယ်။",
-        reply_markup=reply_markup,
+        "အောက်ပါ ခလုတ်များမှတစ်ဆင့် စတင်အသုံးပြုနိုင်ပါတယ်။"
     )
+    await update.message.reply_text(welcome_msg, reply_markup=reply_markup)
 
-async def start_profile_creation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Starts the conversation and asks for the user's name."""
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Inline Keyboard မှ ခလုတ်များကို နှိပ်လိုက်သည့်အခါ အလုပ်လုပ်သည်"""
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(text="Profile ဖန်တီးမှုကို စတင်ပါပြီ။ သင်၏နာမည်ကို ထည့်သွင်းပေးပါ။")
+    
+    command = query.data
+    
+    if command == 'find_match':
+        return await find_match(update, context)
+    elif command == 'view_profile':
+        return await view_my_profile(update, context)
+
+# --- Profile Creation Conversation ---
+
+async def start_profile_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Profile ဖန်တီးမှု လုပ်ငန်းစဉ်ကို စတင်သည်"""
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text("Profile ဖန်တီးမှုကို စတင်ပါပြီ။ သင်၏နာမည်ကို ထည့်သွင်းပေးပါ။")
     return NAME
 
-async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the name and asks for their age."""
+async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User ထည့်သွင်းလိုက်သော နာမည်ကို လက်ခံပြီး အသက်မေးသည်"""
     context.user_data['name'] = update.message.text
     await update.message.reply_text(f"ကောင်းပါပြီ {context.user_data['name']}။ သင်၏အသက်ကို ပြောပြပေးပါ။")
     return AGE
 
-async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the age and asks for their bio."""
+async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User ၏ အသက်ကို လက်ခံပြီး မိတ်ဆက်စာကြောင်းတောင်းသည်"""
     try:
         age = int(update.message.text)
         if 16 <= age <= 100:
@@ -76,14 +81,14 @@ async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text("ကျေးဇူးပြု၍ နံပါတ် (ဂဏန်း) ဖြင့်သာ ထည့်သွင်းပါ။")
         return AGE
 
-async def get_bio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the bio and asks for a photo."""
+async def get_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User ၏ Bio ကိုလက်ခံပြီး ဓာတ်ပုံတောင်းသည်"""
     context.user_data['bio'] = update.message.text
     await update.message.reply_text("နောက်ဆုံးအနေနဲ့ သင့်ရဲ့ Profile ဓာတ်ပုံတစ်ပုံ ပေးပို့ပါ။")
     return PHOTO
 
-async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the photo and ends the conversation."""
+async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User ၏ ဓာတ်ပုံကို လက်ခံပြီး Profile ကို သိမ်းဆည်းသည်"""
     user_id = update.effective_user.id
     photo_file = await update.message.photo[-1].get_file()
     
@@ -92,28 +97,25 @@ async def get_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         'age': context.user_data['age'],
         'bio': context.user_data['bio'],
         'photo': photo_file.file_id,
-        'username': update.effective_user.username,
+        'username': update.effective_user.username
     }
     
     await update.message.reply_text("✅ သင်၏ Profile ကို အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ။")
     await view_my_profile(update, context)
     return ConversationHandler.END
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancels and ends the conversation."""
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Profile ဖန်တီးမှုကို ပယ်ဖျက်သည်"""
     await update.message.reply_text("Profile ဖန်တီးမှုကို ပယ်ဖျက်လိုက်ပါသည်။")
     return ConversationHandler.END
 
+# --- Other Features ---
+
 async def view_my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Displays the user's own profile."""
+    """လက်ရှိ User ၏ Profile ကို ပြန်လည်ပြသသည်"""
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     
-    # query ကနေလာတာလား message ကနေလာတာလား စစ်ဆေးခြင်း
-    query = update.callback_query
-    if query:
-        await query.answer()
-
     if user_id in user_profiles:
         profile = user_profiles[user_id]
         caption = (
@@ -121,36 +123,57 @@ async def view_my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📝 **Bio:**\n{profile['bio']}\n\n"
             f"📞 **ဆက်သွယ်ရန်:** @{profile.get('username', 'N/A')}"
         )
-        await context.bot.send_photo(chat_id=chat_id, photo=profile['photo'], caption=caption, parse_mode='Markdown')
+        await context.bot.send_photo(
+            chat_id=chat_id, 
+            photo=profile['photo'], 
+            caption=caption, 
+            parse_mode='Markdown'
+        )
     else:
-        await context.bot.send_message(chat_id=chat_id, text="သင့်မှာ Profile မရှိသေးပါ။ '/start' မှတစ်ဆင့် ပြန်လည်စတင်နိုင်ပါတယ်။")
+        await context.bot.send_message(
+            chat_id=chat_id, 
+            text="သင့်မှာ Profile မရှိသေးပါ။ 'Profile ပြင်ဆင်/ဖန်တီးမည်' မှ စတင်နိုင်ပါတယ်။"
+        )
+    return ConversationHandler.END
 
 async def find_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Finds and displays a random profile."""
-    query = update.callback_query
-    await query.answer()
+    """အခြား User တစ်ဦး၏ Profile ကို ကျပန်းရှာဖွေပြီး ပြသသည်"""
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     
     available_profiles = {uid: prof for uid, prof in user_profiles.items() if uid != user_id}
     
-    if available_profiles:
+    if len(available_profiles) > 0:
         random_user_id = random.choice(list(available_profiles.keys()))
         profile = available_profiles[random_user_id]
+        
         caption = (
             f"❤️ **Match Found!**\n\n"
             f"👤 **{profile['name']}** ({profile['age']})\n\n"
             f"📝 **Bio:**\n{profile['bio']}\n\n"
             f"💬 စကားပြောဖို့အတွက် @{profile.get('username', 'N/A')} ကို ဆက်သွယ်နိုင်ပါတယ်။"
         )
-        await context.bot.send_photo(chat_id=chat_id, photo=profile['photo'], caption=caption, parse_mode='Markdown')
+        await context.bot.send_photo(
+            chat_id=chat_id, 
+            photo=profile['photo'], 
+            caption=caption, 
+            parse_mode='Markdown'
+        )
     else:
-        await context.bot.send_message(chat_id=chat_id, text="တိုက်ဆိုင်စွာပဲ၊ လက်ရှိမှာ ပြသဖို့ တခြား profile မရှိသေးပါဘူး။")
+        await context.bot.send_message(
+            chat_id=chat_id, 
+            text="တိုက်ဆိုင်စွာပဲ၊ လက်ရှိမှာ ပြသဖို့ တခြား profile မရှိသေးပါဘူး။"
+        )
+    return ConversationHandler.END
 
-# --- Application and Webhook Setup ---
+
+# --- Flask Web Server & Webhook Setup ---
+app = Flask(__name__)
+
+# Initialize Application
 application = Application.builder().token(TOKEN).build()
 
-# Conversation handler for profile creation
+# ConversationHandler for profile creation
 conv_handler = ConversationHandler(
     entry_points=[CallbackQueryHandler(start_profile_creation, pattern='^create_profile$')],
     states={
@@ -162,32 +185,24 @@ conv_handler = ConversationHandler(
     fallbacks=[CommandHandler('cancel', cancel)],
 )
 
-application.add_handler(CommandHandler("start", start))
+# Register handlers
+application.add_handler(CommandHandler('start', start))
+application.add_handler(CallbackQueryHandler(button_handler, pattern='^(find_match|view_profile)$'))
 application.add_handler(conv_handler)
-application.add_handler(CallbackQueryHandler(view_my_profile, pattern='^view_profile$'))
-application.add_handler(CallbackQueryHandler(find_match, pattern='^find_match$'))
-
-# --- Flask App ---
-app = Flask(__name__)
 
 @app.route(f'/{TOKEN}', methods=['POST'])
-async def webhook():
-    """Webhook endpoint to process updates."""
-    update_data = request.get_json(force=True)
-    update = Update.de_json(update_data, application.bot)
-    await application.process_update(update)
+async def webhook_handler():
+    """Handle incoming webhook updates"""
+    await application.update_queue.put(
+        Update.de_json(data=request.get_json(force=True), bot=application.bot)
+    )
     return 'ok'
-    
-@app.route('/set_webhook', methods=['GET', 'POST'])
-async def set_webhook():
-    """Sets the webhook."""
-    if WEBHOOK_URL:
-        await application.bot.set_webhook(url=f"{WEBHOOK_URL}/{TOKEN}")
-        return "Webhook set successfully"
-    return "WEBHOOK_URL not set"
 
-# This part is optional if you set the webhook manually
-# It can be useful for initial setup.
 @app.route('/')
 def index():
-    return 'Bot is running!'
+    return 'Telegram Bot is running!'
+
+if __name__ == '__main__':
+    # For local testing only
+    import asyncio
+    asyncio.run(application.run_polling())
